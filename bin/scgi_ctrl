@@ -1,0 +1,86 @@
+#!/usr/local/bin/ruby
+require 'getoptlong'
+require 'yaml'
+SCGI_CONFIG = {:pidfile=>'log/scgi.pid', :number=>'1', :port=>'9999',
+  :runner=>'/usr/local/bin/scgi_rails_service'}
+
+def parse_options
+  config = Hash.new
+  config[:config] = 'config/scgi.yaml'
+  opts = GetoptLong.new(
+    [ '--config', '-c', GetoptLong::REQUIRED_ARGUMENT ],
+    [ '--pidfile', '-P', GetoptLong::REQUIRED_ARGUMENT ],
+    [ '--directory', '-d', GetoptLong::REQUIRED_ARGUMENT ],
+    [ '--runner', '-r', GetoptLong::REQUIRED_ARGUMENT ],
+    [ '--number', '-n', GetoptLong::REQUIRED_ARGUMENT ],
+    [ '--port', '-p', GetoptLong::REQUIRED_ARGUMENT ],
+    [ '--environment', '-e', GetoptLong::REQUIRED_ARGUMENT ],
+    [ '--bind', '-b', GetoptLong::REQUIRED_ARGUMENT ],
+    [ '--logfile', '-l', GetoptLong::REQUIRED_ARGUMENT ],
+    [ '--maxconns', '-m', GetoptLong::REQUIRED_ARGUMENT ],
+    [ '--throttle', '-t', GetoptLong::REQUIRED_ARGUMENT ]
+  )
+  opts.each do |opt, arg|
+    case opt
+      when '--directory' then Dir.chdir(arg)
+      else config[opt[2..-1].to_sym] = arg
+    end
+  end
+  # Configuration Precedence: Command Line > Config File > Default
+  SCGI_CONFIG.merge!(config_file_options(config[:config]))
+  SCGI_CONFIG.merge!(config)
+  SCGI_CONFIG[:options] = ['-d', Dir.pwd]
+  [:environment, :bind, :logfile, :maxconns, :throttle].each do |item|
+    next unless SCGI_CONFIG.include?(item)
+    SCGI_CONFIG[:options] << "--#{item}"
+    SCGI_CONFIG[:options] << SCGI_CONFIG[item]
+  end
+  SCGI_CONFIG[:options].collect!{|o| o.to_s}
+end
+
+def config_file_options(filename)
+  begin
+    config = YAML.load(File.read(filename))
+    config.is_a?(Hash) ? config : Hash.new
+  rescue 
+    Hash.new
+  end
+end
+
+def scgi_kickoff(number)
+  fork{exec(SCGI_CONFIG[:runner], '-p', (SCGI_CONFIG[:port].to_i+number).to_s, *SCGI_CONFIG[:options])}
+end
+
+def start
+  pids = Array.new
+  SCGI_CONFIG[:number].to_i.times{|i| pids << scgi_kickoff(i).to_s}
+  File.open(SCGI_CONFIG[:pidfile], 'wb'){|f| f.write(pids.join(' '))}
+end
+
+def stop
+  if File.file?(SCGI_CONFIG[:pidfile])
+    pids = nil
+    File.open(SCGI_CONFIG[:pidfile], 'rb'){|f| pids = f.read.split.collect{|x| x.to_i if x.to_i > 0}.compact}
+    if pids.length > 0
+      Process.kill("INT", *pids) rescue return nil
+      File.delete(SCGI_CONFIG[:pidfile])
+    end
+  end
+end
+
+def process(command)
+  case command
+    when 'start'
+      stop
+      start
+    when 'stop'
+      stop
+    else
+      print "usage: scgi_ctrl [-d directory] [-P pidfile] [-r runner] [-n number] "
+      print "[-p port] [-e environment] [-b bind] [-l logfile] [-m maxconns] "
+      puts "[-t throttle] [-c config] (start|stop)"
+  end
+end
+
+parse_options
+process(ARGV[0])

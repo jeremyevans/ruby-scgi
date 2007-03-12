@@ -1,0 +1,37 @@
+#!/usr/local/bin/ruby
+require 'scgi_rails'
+require 'getoptlong'
+
+def parse_options
+  config = Hash.new
+  opts = GetoptLong.new(
+    [ '--directory', '-d', GetoptLong::REQUIRED_ARGUMENT ],
+    [ '--environment', '-e', GetoptLong::REQUIRED_ARGUMENT ],
+    [ '--bind', '-b', GetoptLong::REQUIRED_ARGUMENT ],
+    [ '--port', '-p', GetoptLong::REQUIRED_ARGUMENT ],
+    [ '--logfile', '-l', GetoptLong::REQUIRED_ARGUMENT ],
+    [ '--maxconns', '-m', GetoptLong::REQUIRED_ARGUMENT ],
+    [ '--throttle', '-t', GetoptLong::REQUIRED_ARGUMENT ]
+  )
+  opts.each do |opt, arg|
+    case opt
+      when '--directory'
+        Dir.chdir(arg)
+      when '--environment'
+        config[:environment] = arg
+      when '--bind'
+        config[:bind] = arg
+      when '--port'
+        config[:port] = arg.to_i
+      when '--logfile'
+        config[:logile] = arg
+      when '--maxconns'
+        config[:maxconns] = arg.to_i
+      when '--throttle'
+        config[:throttle] = arg.to_f
+    end
+  end
+  config
+end
+
+RailsProcessor.new(parse_options).listen
