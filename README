@@ -1,0 +1,331 @@
+= ruby-scgi
+
+ruby-scgi is a small Ruby script for running Ruby on Rails (and possibly other
+web applications) for high-speed deployment of your applications in production.
+It is intended as a replacement for the ancient FastCGI code base and bring
+some big advantages to Rails deployment for production operations.  
+
+SCGI (Simple Common Gateway Interface) is a project to replace CGI and FastCGI
+with a simpler protocol to both implement and manage. It was written by Neil
+Schemenauer and adopted by many Python developers as a hosting option.
+   
+ruby-scgi is distributed as a gem, and can be installed with:
+
+    sudo gem install scgi
+
+Feedback/Bugs/Support Requests should be handled through RubyForge at 
+http://rubyforge.org/projects/scgi/.
+
+The RDoc is available at http://code.jeremyevans.net/doc/ruby-scgi/.
+Subversion access is available at svn://code.jeremyevans.net/ruby-scgi/.
+
+== Advantages
+
+* Simultaneous support for Apache1, Apache2, and lighttpd on OSX and most 
+  Linux/BSD systems.
+* Same performance as FastCGI and better performance than other methods.
+* Simple to install, run, and configure.
+* Supports both single-port and multi-port clustering on most systems for that
+  extra boost in concurrency.
+* Supports both command line and config file configuration.
+* Gives out limited status information to help manage your Rails application's
+  resources.
+* Makes it easy to manage your production deployment, and you can even run your
+  application in development mode exactly the same way as with script/server
+  for extra testing efficiency.
+* You can set a maximum concurrent connections limit, which causes any
+  connections over the limit to get redirected to a /busy.html file. This can
+  help keep your site alive under heavy load.
+* Simple to configure with your web server. Even if you use clustering you'll
+  be able to manage your webserver and Rails application independently.
+* Reasonable defaults for almost everything based on user feedback.
+* Completely free code licensed under Rails's own license.
+* No external dependencies other than Ruby
+* The core implementation and the command line tools are easily extensible for
+  other Ruby web frameworks.
+
+== Comparison With FastCGI
+
+SCGI and FastCGI have similar goals:  To keep Ruby running between requests and
+process the requests as fast as possible.  The difference is that SCGI is much
+simpler and easier to implement so there's less chance to get it wrong.
+
+Specifically, ruby-scgi is written in pure Ruby so it doesn't leak memory,
+runs everywhere, and is easy to install (no compilers needed).
+
+One thing that SCGI doesn't support is using UNIX Domain sockets in addition to
+TCP/IP sockets.  This isn't really needed, but it is handy in a shared hosting
+situation where you don't want others connecting to your processes or if you
+have to request open ports.  Sorry, no UNIX Domain sockets in SCGI.
+
+== Comparison With WEBrick
+
+In theory WEBrick should be able to run just as fast as SRR.  They are both
+written in pure Ruby.  They both do similar processing (although WEBrick's are
+a little more complicated).  They both return about the same amount of data.
+
+In practice WEBrick in production mode runs much slower than SRR in production
+mode.  The (dis)advantage (depending on your point of view) is that you have to
+manage your webserver differently than you manage your application.
+
+== Comparison With CGI
+
+CGI is where every time a request comes in for rails the whole Ruby on Rails
+framework is loaded.  This is very slow, but it's easy to install.
+
+An alternative is to use the cgi2scgi program distributed with the SCGI source
+available from http://www.mems-exchange.org/software/scgi/ along with the
+Apache modules.  This program basically is a small little C program that runs
+quickly as a CGI, but passes it's requests to your SRR backend.  It's not all
+that fast, but if you're stuck with cgi-bin only access then this might be just
+the way to go.  Since SCGI runs over TCP/IP you can even host your SRR on a
+totally different machine with this.
+
+== Running and Configuration
+
+If you want to start ruby-scgi with the default configuration, just run:
+
+  scgi_ctrl -d /path/to/rails/app start
+  
+To stop the application:
+
+  scgi_ctrl -d /path/to/rails/app stop
+  
+To restart the application:
+
+  scgi_ctrl -d /path/to/rails/app start # start actually restarts
+  
+Note that restarting/stopping is controlled by a pid file (the location is
+configurable).  If the pidfile exists, it is read and the pids in it are
+killed.  If restarting, new processes are forked after the existing processes
+are killed.
+
+To see the possible and default configuration options, just run the program
+without any arguments:
+
+scgi_ctrl [option=value, ...] (start|stop)
+ Options:
+  -b, --bind          IP address to bind to [127.0.0.1]
+  -c, --config        Location of config file [config/scgi.yaml]
+  -d, --directory     Working directory [.]
+  -e, --environment   Environment (for Rails) [production]
+  -f, --fork          Number of listners on each port [1]
+  -l, --logfile       Location of log file [log/scgi.log]
+  -m, --maxconns      Maximum number of concurrent users [2**30-1]
+  -n, --number        Number of ports to bind to [1]
+  -p, --port          Starting port to bind to [9999]
+  -P, --pidfile       Location of pid file [log/scgi.pid]
+  -r, --processor     Type of processor to use [Rails]
+
+Note that the -d (--directory) option changes the working directory of the
+process, so the -c, -l, and -P options are relative to that.
+
+Here's a longer explanation of the options:
+
+  -b, --bind          IP address to bind to [127.0.0.1]
+  
+  This is the TCP/IP networking sockets to bind to.  It defaults to the
+  loopback address because generally the web application runs on the same
+  physical server as the web server.  If this is not the case, change it to an
+  externally available IP, and make sure to lock down access to the port via a
+  firewall.
+  
+  -c, --config        Location of config file [config/scgi.yaml]
+  
+  This is the configuration file for ruby-scgi.  It is recommended that you use
+  this instead of the command line configuration, as it saves typing.  This
+  path is relative to the working directory, so if it is not inside the working
+  directory, make sure you specify an absolute path.  Also, note that this is
+  the only option that is not configurable from the configuration file.
+  
+  -d, --directory     Working directory [.]
+  
+  This is the working directory of the process.  It should generally be the
+  path to the root of the web application.  Alternatively, you can change to
+  the root of the web application before hand and then not use this option.
+  
+  -e, --environment   Environment (for Rails) [production]
+  
+  This is the only option that is Rails-specific, allowing you to specify the
+  Rails environment on the command line.  It defaults to production because
+  that is the general use case for ruby-scgi.
+  
+  -f, --fork          Number of listners on each port [1]
+  
+  This enables single-port clustering of processes, so there are multiple
+  processes listening on each port.  This can simplify configuration of the
+  webserver, since only a single port need be specified, and can also eliminate
+  the need for a proxy such as pound or pen to handle this for you.  It
+  defaults to one process per port.  Try single port clustering first, and if
+  it is not stable, switch to multiple port clustering.  It is possible to use
+  both as once.
+  
+  -l, --logfile       Location of log file [log/scgi.log]
+  
+  This is the location of the log file, relative to the working directory.
+  ruby-scgi doesn't log all that much (starts, shutdowns, bad requests, other
+  errors, and status info when sent SIGUSR2).
+  
+  -m, --maxconns      Maximum number of concurrent users [2**30-1]
+  
+  The maximum number of concurrent connections.  If more connections that this
+  are sent to the server, it redirects them to the /busy.html file.
+  
+  -n, --number        Number of ports to bind to [1]
+  
+  This enables multi-port clustering.  Multi-port clustering listens on
+  multiple ports starting with the port specified (so port, port+1, port+2,
+  ...).  This makes webserver configuration a little more difficult, and might
+  also require a separate proxy such as pound or pen, so you should try
+  single-port clustering first.  You can run both at once if you want.
+  
+  -p, --port          Starting port to bind to [9999]
+  
+  This is the starting (or only) port that ruby-scgi will use.  If multi-port
+  clustering is used, all ports will be greater than this one.
+  
+  -P, --pidfile       Location of pid file [log/scgi.pid]
+  
+  This is the pid file, relative to the working directory.  The pid file is
+  necessary, as it is what is used to specify which pids to kill when stopping
+  or restarting.  If incorrect information is in the pid file, the processes
+  won't be stopped when they should be, and you will probably won't be able
+  to start new processes (because the ports will still be in use).
+  
+  -r, --processor     Type of processor to use [Rails]
+  
+  This is the type of processor to use, it defaults to Rails, as that is the
+  only one currently supported.  Adding other processers is fairly easy, just
+  make the processor is in a file named XXXXXSCGIProcessor.rb (where XXXXX is
+  in the name of the processor), and that file is located in ruby's library
+  path (the RUBYLIB environment variable).  See RailsSCGIProcessor.rb for an
+  example.
+
+Each of the options can also be specified in the config file as a symbol.  An
+example config file would be:
+
+---
+:port: 4000
+:fork: 3
+
+This sets up a single-port cluster on port 4000 with 3 listening processes.
+
+== Example configurations
+
+Note that ruby-scgi is only tested on Lighttpd.  Also, note that Lighttpd
+1.4.16 has a bug which breaks redirects using server.error-handler-404, so
+either use mod_magnet, wait for 1.4.17, or apply the patch in ticket
+1270 on Lighttpd's Trac.
+
+Lighttpd:
+
+ server.modules = ( ... "mod_scgi" ... )
+ server.error-handler-404 = "/dispatch.scgi"
+ 
+ # For Single Process or Single-Port Clustering
+ scgi.server = ( "dispatch.scgi" => (
+    "server1" => (
+        "host" => "127.0.0.1",
+        "port" => 9999,
+        "check-local" => "disable",
+        "disable-time" => 0)
+    ))
+
+ # For Multi-Port Clustering
+ scgi.server = ( "dispatch.scgi" => (
+    "server1" => (
+        "host" => "127.0.0.1",
+        "port" => 9997,
+        "check-local" => "disable",
+        "disable-time" => 0),
+    "server2" => (
+        "host" => "127.0.0.1",
+        "port" => 9998,
+        "check-local" => "disable",
+        "disable-time" => 0),
+    "server3" => (
+        "host" => "127.0.0.1",
+        "port" => 9999,
+        "check-local" => "disable",
+        "disable-time" => 0)
+    ))
+
+Apache:
+
+ <VirtualHost your-ip:80>
+    AddDefaultCharset utf-8
+    ServerName www.yourdomain
+    DocumentRoot /your-switchtower-root/current/public
+    ErrorDocument 500 /500.html
+    ErrorDocument 404 /404.html
+    # handle all requests throug SCGI
+    SCGIMount / 127.0.0.1:9999
+    # matches locations with a dot following at least one more characters,
+    # that is, things like   *,html, *.css, *.js, which should be delivered
+    # directly from the filesystem
+    <LocationMatch \..+$>
+        # don't handle those with SCGI
+        SCGIHandler Off
+    </LocationMatch>
+    <Directory /your-switchtower-root/current/public/>
+        Options +FollowSymLinks
+        Order allow,deny
+        allow from all
+    </Directory>
+ </VirtualHost>
+
+== Security
+
+Alright, listen up.  I'm not gonna have people trying to take me to court
+because they think I didn't tell them about security problems.  Here are the
+main attack vectors you should be aware of when running this:
+
+* POSIX signals are bad if you're in a shared hosting setup that configures all
+  processes to run as a common user like *nobody*.  If your provider does this
+  then you should use something else or find a better provider.
+* The config file, pid file, and log file and directories should have
+  appropriate permissions. The config file should ideally be readable but not
+  writable by the user running scgi_ctrl.  The pid and log file directory
+  should be writable by the user running scgi_ctrl and by no other user.  If
+  the config file is writable by a non-trusted user, they could potentially
+  run arbitrary code, and they could certainly open arbitrary ports and or
+  attempt denial of service.  If the pid file is writable by a non-trusted
+  user, it could cause arbitrary processes to be killed by the user running
+  scgi_ctrl
+* Never run scgi_ctrl as root.  If you don't know why you should read up about
+  the unix security model before deploying any more software.
+
+== Changes from previous versions
+
+* Single-port clustering is back
+* scgi_ctrl is fully configurable on the command line
+* Clustering and processing are now built into scgi_ctrl
+* DRb, Win32, and throttling are no longer supported
+* Soft reconfiguration is no longer supported (no SIGUSR1)
+* Restarting via SIGHUP is no longer supported (SIGHUP is the same as SIGINT)
+* The only commands available to scgi_ctrl are start and stop
+
+== FAQ
+
+Q: Have you been living under a rock for the last two years?  Mongrel/Nginx is
+the new hotness!
+
+A: Well, aren't you snotty.  You can certainly use Mongrel if you want.  The
+memory/performance differences are small, and it is probably better maintained.
+ruby-scgi may have simpler clustering, and may be useful for certain legacy
+setups.  Also, it works well and it's been working for me for the last few
+years, so I haven't felt the need to change.
+
+Q: Does it work with Capistrano yet?
+
+A: I haven't tried.  If you have luck, let me know.
+
+Q: Is there an easy way to reload?  I don't want to take the whole thing down
+just to deploy new code.
+
+A: scgi_ctrl always uses SIGINT to stop processes, which allows existing
+clients to finish.  Restarting may have problems if a lot of clients are
+connected and the processes can't shutdown before the new listening socket is
+bound.  This hasn't been a problem for me yet, but it is a possible race
+condition.  In case it affects you, you may have to run scgi_ctrl start again
+if you get an error binding to a port.

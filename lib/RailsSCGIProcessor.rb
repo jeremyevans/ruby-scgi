@@ -1,13 +1,11 @@
 #!/usr/local/bin/ruby
 require 'scgi'
 
-class RailsProcessor < SCGI::Processor 
-  DEFAULT_SCGI_RAILS_SETTINGS = {:environment=>'production', :bind=>'127.0.0.1', 
-    :port=>9999, :logfile=>'log/scgi.log', :maxconns=>2**30-1}
-    
+# This SCGI::Processor subclass hooks the SCGI request into Ruby on Rails.
+class RailsSCGIProcessor < SCGI::Processor 
+  # Initialzes Rails with the appropriate environment and settings
   def initialize(settings)
-    settings = DEFAULT_SCGI_RAILS_SETTINGS.merge(settings)
-    ENV["RAILS_ENV"] = settings[:environment]
+    ENV["RAILS_ENV"] = settings[:environment] || 'production'
     require "config/environment"
     ActiveRecord::Base.threaded_connections = false
     require 'dispatcher'
@@ -15,6 +13,7 @@ class RailsProcessor < SCGI::Processor
     @guard = Mutex.new
   end
   
+  # Submits requests to Rails in a single threaded fashion
   def process_request(request, body, socket)
     return if socket.closed?
     cgi = SCGI::CGIFixed.new(request, body, socket)

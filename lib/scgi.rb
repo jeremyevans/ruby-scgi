@@ -77,13 +77,6 @@ module SCGI
   # Ruby on Rails.  This implementation is not complete since you must
   # create your own that implements the process_request method.
   #
-  # The SCGI::Processor is designed to be as fast as possible under Ruby 1.8.2
-  # without sacrificing simplicity.  This one class is actually the entire
-  # SCGI core and is the result of careful analysis and performance tuning.
-  # Be very concious of how you change things before you do it, and do a 
-  # performance test before and AFTER you make change to confirm that it 
-  # actually runs faster.
-  #
   # The SCGI protocol only works with TCP/IP sockets and not domain sockets.
   # It might be useful for shared hosting people to have domain sockets, but
   # they aren't supported in Apache, and in lighttpd they're unreliable.
@@ -101,7 +94,6 @@ module SCGI
       @host = settings[:bind]
       @port = settings[:port]
       @maxconns = settings[:maxconns]
-      @throttle_sleep = 1.0/settings[:throttle] if settings[:throttle]
       super()
       setup_signals
     end
@@ -129,7 +121,6 @@ module SCGI
       thread = Thread.new do
         loop do
           handle_client(@socket.accept)
-          sleep(@throttle_sleep) if @throttle_sleep
           break if @shutdown and @threads.length <= 0
         end
       end
@@ -161,9 +152,8 @@ module SCGI
     # doesn't seem to deal with threads as well as others believe.
     #
     # Depending on how your system works, you may need to synchronize 
-    # inside your process_request implementation.  The scgi_service
-    # script for Ruby on Rails does this so that Rails will run
-    # as if it were single threaded.
+    # inside your process_request implementation.  scgi_rails.rb
+    # does this so that Rails will run as if it were single threaded.
     #
     # It also handles calculating the current and total connections,
     # and deals with the graceful shutdown.  The important part 
@@ -250,7 +240,7 @@ module SCGI
       :time => Time.now,  :pid => Process.pid, :settings => @settings,
       :environment => @settings[:environment], :started => @started,
       :max_conns => @maxconns, :conns => @threads.length, :systimes => Process.times,
-      :throttle => @throttle, :shutdown => @shutdown, :dead => @dead, :total_conns => @total_conns
+      :shutdown => @shutdown, :dead => @dead, :total_conns => @total_conns
       }.inspect
     end
         
