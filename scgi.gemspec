@@ -1,6 +1,6 @@
 spec = Gem::Specification.new do |s| 
   s.name = "scgi"
-  s.version = "0.6.0"
+  s.version = "0.7.0"
   s.author = "Jeremy Evans"
   s.email = "code@jeremyevans.net"
   s.platform = Gem::Platform::RUBY
@@ -9,5 +9,5 @@ spec = Gem::Specification.new do |s|
   s.require_paths = ["lib"]
   s.executables = %w'scgi_ctrl'
   s.has_rdoc = true
+  s.rdoc_options = %w'--inline-source --line-numbers'
 end
-

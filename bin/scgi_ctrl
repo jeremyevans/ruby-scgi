@@ -1,132 +1,236 @@
 #!/usr/local/bin/ruby
 require 'getoptlong'
 require 'yaml'
+require 'socket'
 SCGI_DEFAULT_CONFIG = {:pidfile=>'log/scgi.pid', :number=>1, :port=>9999,
   :processor=>'Rails', :fork=>1, :logfile=>'log/scgi.log', :maxconns=>2**30-1,
-  :bind=>'127.0.0.1', :command=>''}
+  :bind=>'127.0.0.1', :cliconfig=>{}, :killtime=>2, :config=>'config/scgi.yaml'}
 SCGI_CONFIG = {}
 
-def config_file_options(filename)
-  begin
-    config = YAML.load(File.read(filename))
-    config.is_a?(Hash) ? config : Hash.new
-  rescue
-    Hash.new
-  end
-end
-
-def get_processor(string)
-  raise NameError, "#{string} is not a valid processor!" unless string =~ /\A[A-Z][A-ZA-z]*\z/
-  processor = "#{string}SCGIProcessor"
-  require processor
-  eval(processor)
-end
-
-def parse_options
-  config = {:config => 'config/scgi.yaml'}
-  opts = GetoptLong.new(
-    [ '--bind', '-b', GetoptLong::REQUIRED_ARGUMENT ],
-    [ '--config', '-c', GetoptLong::REQUIRED_ARGUMENT ],
-    [ '--directory', '-d', GetoptLong::REQUIRED_ARGUMENT ],
-    [ '--environment', '-e', GetoptLong::REQUIRED_ARGUMENT ],
-    [ '--fork', '-f', GetoptLong::REQUIRED_ARGUMENT ],
-    [ '--logfile', '-l', GetoptLong::REQUIRED_ARGUMENT ],
-    [ '--maxconns', '-m', GetoptLong::REQUIRED_ARGUMENT ],
-    [ '--number', '-n', GetoptLong::REQUIRED_ARGUMENT ],
-    [ '--port', '-p', GetoptLong::REQUIRED_ARGUMENT ],
-    [ '--pidfile', '-P', GetoptLong::REQUIRED_ARGUMENT ],
-    [ '--processor', '-r', GetoptLong::REQUIRED_ARGUMENT ]
-  )
-  opts.each do |opt, arg|
-    case opt
-      when '--bind'
-        config[:bind] = arg
-      when '--config'
-        config[:config] = arg
-      when '--directory'
-        Dir.chdir(arg)
-      when '--environment'
-        config[:environment] = arg
-      when '--fork'
-        config[:fork] = arg.to_i
-      when '--logfile'
-        config[:logile] = arg
-      when '--maxconns'
-        config[:maxconns] = arg.to_i
-      when '--number'
-        config[:number] = arg.to_i
-      when '--port'
-        config[:port] = arg.to_i
-      when '--pidfile'
-        config[:pidfile] = arg
-      when '--processor'
-        config[:processor] = arg
+module SCGI
+  class Starter
+    def initialize
+      super
+      parse_options
     end
-  end
-  
-  # Configuration Precedence: Command Line > Config File > Default
-  SCGI_CONFIG.merge!(SCGI_DEFAULT_CONFIG)
-  SCGI_CONFIG.merge!(config_file_options(config[:config]))
-  SCGI_CONFIG.merge!(config)
-end
-
-def process(command)
-  case command
-    when 'start'
-      stop
-      start
-    when 'stop'
-      stop
-    else
-      puts usage
-  end
-end
-
-def start
-  processor = get_processor(SCGI_CONFIG[:processor]).new(SCGI_CONFIG)
-  pids = []
-  SCGI_CONFIG[:number].times do |i|
-    socket = TCPServer.new(SCGI_CONFIG[:bind], port = SCGI_CONFIG[:port]+i)
-    SCGI_CONFIG[:fork].times do
-      if pid = fork
-        pids << pid
-      else
-        $0 = "scgi-#{SCGI_CONFIG[:processor]} dir:#{Dir.pwd} port:#{port}"
-        return processor.listen(socket)
+    
+    def config_file_options(filename)
+      begin
+        config = YAML.load(File.read(filename))
+        config.is_a?(Hash) ? config : Hash.new
+      rescue
+        Hash.new
       end
     end
-  end
-  File.open(SCGI_CONFIG[:pidfile], 'wb'){|file| file.print("#{pids.join(' ')}")}
-end
 
-def stop
-  if File.file?(SCGI_CONFIG[:pidfile])
-    pids = nil
-    File.open(SCGI_CONFIG[:pidfile], 'rb'){|f| pids = f.read.split.collect{|x| x.to_i if x.to_i > 0}.compact}
-    if pids.length > 0
-      Process.kill("INT", *pids) rescue return nil
+    def get_processor(string)
+      raise NameError, "#{string} is not a valid processor!" unless string =~ /\A[A-Z][A-ZA-z]*\z/
+      processor = "#{string}SCGIProcessor"
+      require processor
+      eval(processor)
+    end
+    
+    def kill_children_forcefully(pids)
+      kill_pids('TERM', *pids)
+      sleep(SCGI_CONFIG[:killtime])
+      kill_pids('KILL', *pids)
+    end
+    
+    def kill_children_gently(pids)
+      kill_pids('INT', *pids)
+      sleep(SCGI_CONFIG[:killtime])
+      sleep(SCGI_CONFIG[:killtime]) if kill_pids('TERM', *pids)
+      kill_pids('KILL', *pids)
+    end
+
+    def kill_pids(signal, *pids)
+      Process.kill(signal, *pids) rescue nil
+    end
+
+    def parse_options
+      cliconfig = {}
+      opts = GetoptLong.new(
+        [ '--bind', '-b', GetoptLong::REQUIRED_ARGUMENT ],
+        [ '--config', '-c', GetoptLong::REQUIRED_ARGUMENT ],
+        [ '--directory', '-d', GetoptLong::REQUIRED_ARGUMENT ],
+        [ '--environment', '-e', GetoptLong::REQUIRED_ARGUMENT ],
+        [ '--fork', '-f', GetoptLong::REQUIRED_ARGUMENT ],
+        [ '--killtime', '-k', GetoptLong::REQUIRED_ARGUMENT ],
+        [ '--logfile', '-l', GetoptLong::REQUIRED_ARGUMENT ],
+        [ '--maxconns', '-m', GetoptLong::REQUIRED_ARGUMENT ],
+        [ '--number', '-n', GetoptLong::REQUIRED_ARGUMENT ],
+        [ '--port', '-p', GetoptLong::REQUIRED_ARGUMENT ],
+        [ '--pidfile', '-P', GetoptLong::REQUIRED_ARGUMENT ],
+        [ '--processor', '-r', GetoptLong::REQUIRED_ARGUMENT ],
+        [ '--supervise', '-s', GetoptLong::NO_ARGUMENT]
+      )
+      opts.each do |opt, arg|
+        case opt
+          when '--bind'
+            cliconfig[:bind] = arg
+          when '--config'
+            cliconfig[:config] = arg
+          when '--directory'
+            Dir.chdir(arg)
+          when '--environment'
+            cliconfig[:environment] = arg
+          when '--fork'
+            cliconfig[:fork] = arg.to_i
+          when '--killtime'
+            cliconfig[:killtime] = arg.to_i
+          when '--logfile'
+            cliconfig[:logile] = arg
+          when '--maxconns'
+            cliconfig[:maxconns] = arg.to_i
+          when '--number'
+            cliconfig[:number] = arg.to_i
+          when '--port'
+            cliconfig[:port] = arg.to_i
+          when '--pidfile'
+            cliconfig[:pidfile] = arg
+          when '--processor'
+            cliconfig[:processor] = arg
+          when '--supervise'
+            cliconfig[:supervise] = true
+        end
+      end
+
+      # Configuration Precedence: Command Line > Config File > Default
+      SCGI_CONFIG.merge!(SCGI_DEFAULT_CONFIG)
+      SCGI_CONFIG.merge!(config_file_options(cliconfig[:config] || SCGI_DEFAULT_CONFIG[:config]))
+      SCGI_CONFIG.merge!(cliconfig)
+      SCGI_CONFIG[:cliconfig] = cliconfig
+    end
+
+    def process(command)
+      return process_supervisor(command) if SCGI_CONFIG[:supervise]
+      case command
+        when 'restart'
+          stop
+          start
+        when 'start'
+          start
+        when 'stop'
+          stop
+        else
+          puts usage
+      end
+    end
+
+    def process_supervisor(command)
+      case command
+        when 'restart'
+          supervisor_restart
+        when 'start'
+          supervisor_start
+        when 'stop'
+          supervisor_stop
+        else
+          puts usage
+      end
+    end
+
+    def reload_config
+      SCGI_CONFIG.merge!(config_file_options(SCGI_CONFIG[:config]))
+      SCGI_CONFIG.merge!(SCGI_CONFIG[:cliconfig])
+    end
+
+    def start_child(socket, port)
+      fork do
+        $0 = "scgi-#{SCGI_CONFIG[:processor]} dir:#{Dir.pwd} port:#{port}"
+        get_processor(SCGI_CONFIG[:processor]).new(SCGI_CONFIG).listen(socket)
+      end
+    end
+
+    def start
+      pids = []
+      SCGI_CONFIG[:number].times do |i|
+        socket = TCPServer.new(SCGI_CONFIG[:bind], port = SCGI_CONFIG[:port]+i)
+        SCGI_CONFIG[:fork].times do
+          pids << start_child(socket, port)
+        end
+      end
+      File.open(SCGI_CONFIG[:pidfile], 'wb'){|file| file.print("#{pids.join(' ')}")}
+    end
+
+    def stop
+      if File.file?(SCGI_CONFIG[:pidfile])
+        pids = nil
+        File.open(SCGI_CONFIG[:pidfile], 'rb'){|f| pids = f.read.split.collect{|x| x.to_i if x.to_i > 0}.compact}
+        if pids.length > 0
+          kill_children_gently(pids)
+          File.delete(SCGI_CONFIG[:pidfile])
+        end
+      end
+    end
+
+    def supervisor_exit
       File.delete(SCGI_CONFIG[:pidfile])
+      exit
+    end
+
+    def supervisor_loop
+      $0 = "scgi-#{SCGI_CONFIG[:processor]} dir:#{Dir.pwd} supervisor"
+      trap("HUP") { reload_config; supervisor_restart_children }
+      trap("TERM") { kill_children_forcefully(SCGI_CONFIG[:pids].values.flatten); supervisor_exit }
+      trap("INT") { kill_children_gently(SCGI_CONFIG[:pids].values.flatten); supervisor_exit }
+      loop{sleep(60)}
+    end
+
+    def supervisor_restart
+      kill_pids("HUP", File.read(SCGI_CONFIG[:pidfile]).to_i)
+    end
+
+    def supervisor_restart_children
+      new_pids = {}
+      SCGI_CONFIG[:pids].each do |port, pids|
+        SCGI_CONFIG[:fork].times do
+          (new_pids[port] ||= []) << start_child(SCGI_CONFIG[:sockets][port], port)
+        end
+        kill_children_gently(pids)
+        pids.each{|pid| Process.detach(pid)}
+      end
+      SCGI_CONFIG[:pids] = new_pids
+    end
+
+    def supervisor_start
+      SCGI_CONFIG[:pids] = {}
+      SCGI_CONFIG[:sockets] = {}
+      SCGI_CONFIG[:number].times do |i| 
+        port = SCGI_CONFIG[:port]+i
+        SCGI_CONFIG[:sockets][port] = TCPServer.new(SCGI_CONFIG[:bind], port)
+        SCGI_CONFIG[:fork].times do
+          (SCGI_CONFIG[:pids][port] ||= []) << start_child(SCGI_CONFIG[:sockets][port], port)
+        end
+      end
+      File.open(SCGI_CONFIG[:pidfile], 'wb'){|file| file.print(fork{supervisor_loop})}
+    end
+
+    def supervisor_stop
+      kill_pids("INT", File.read(SCGI_CONFIG[:pidfile]).to_i)
+    end
+
+    def usage
+      <<-END
+    scgi_ctrl [option value, ...] (restart|start|stop)
+     Options:
+      -b, --bind          IP address to bind to [127.0.0.1]
+      -c, --config        Location of config file [config/scgi.yaml]
+      -d, --directory     Working directory [.]
+      -e, --environment   Environment (for Rails) [production]
+      -f, --fork          Number of listners on each port [1]
+      -k, --killtime      Number of seconds to wait when killing children [2]
+      -l, --logfile       Location of log file [log/scgi.log]
+      -m, --maxconns      Maximum number of concurrent users [2**30-1]
+      -n, --number        Number of ports to bind to [1]
+      -p, --port          Starting port to bind to [9999]
+      -P, --pidfile       Location of pid file [log/scgi.pid]
+      -r, --processor     Type of processor to use [Rails]
+      -s, --supervise     Whether to use a supervisor [No]
+      END
     end
   end
 end
 
-def usage
-  <<-END
-scgi_ctrl [option=value, ...] (start|stop)
- Options:
-  -b, --bind          IP address to bind to [127.0.0.1]
-  -c, --config        Location of config file [config/scgi.yaml]
-  -d, --directory     Working directory [.]
-  -e, --environment   Environment (for Rails) [production]
-  -f, --fork          Number of listners on each port [1]
-  -l, --logfile       Location of log file [log/scgi.log]
-  -m, --maxconns      Maximum number of concurrent users [2**30-1]
-  -n, --number        Number of ports to bind to [1]
-  -p, --port          Starting port to bind to [9999]
-  -P, --pidfile       Location of pid file [log/scgi.pid]
-  -r, --processor     Type of processor to use [Rails]
-END
-end
+SCGI::Starter.new.process(ARGV[0])
 
-parse_options
-process(ARGV[0])

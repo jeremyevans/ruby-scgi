@@ -38,6 +38,7 @@ Subversion access is available at svn://code.jeremyevans.net/ruby-scgi/.
   help keep your site alive under heavy load.
 * Simple to configure with your web server. Even if you use clustering you'll
   be able to manage your webserver and Rails application independently.
+* Supports supervisor mode for rock solid upgrades without losing connections
 * Reasonable defaults for almost everything based on user feedback.
 * Completely free code licensed under Rails's own license.
 * No external dependencies other than Ruby
@@ -60,13 +61,14 @@ have to request open ports.  Sorry, no UNIX Domain sockets in SCGI.
 
 == Comparison With WEBrick
 
-In theory WEBrick should be able to run just as fast as SRR.  They are both
-written in pure Ruby.  They both do similar processing (although WEBrick's are
-a little more complicated).  They both return about the same amount of data.
+In theory WEBrick should be able to run just as fast as ruby-scgi.  They are 
+both written in pure Ruby.  They both do similar processing (although WEBrick's
+are a little more complicated).  They both return about the same amount of
+data.
 
-In practice WEBrick in production mode runs much slower than SRR in production
-mode.  The (dis)advantage (depending on your point of view) is that you have to
-manage your webserver differently than you manage your application.
+In practice WEBrick in production mode runs much slower than ruby-scgi in
+production mode.  The (dis)advantage (depending on your point of view) is that
+you have to manage your webserver differently than you manage your application.
 
 == Comparison With CGI
 
@@ -76,10 +78,10 @@ framework is loaded.  This is very slow, but it's easy to install.
 An alternative is to use the cgi2scgi program distributed with the SCGI source
 available from http://www.mems-exchange.org/software/scgi/ along with the
 Apache modules.  This program basically is a small little C program that runs
-quickly as a CGI, but passes it's requests to your SRR backend.  It's not all
-that fast, but if you're stuck with cgi-bin only access then this might be just
-the way to go.  Since SCGI runs over TCP/IP you can even host your SRR on a
-totally different machine with this.
+quickly as a CGI, but passes it's requests to your ruby-scgi backend.  It's not
+all that fast, but if you're stuck with cgi-bin only access then this might be
+just the way to go.  Since SCGI runs over TCP/IP you can even host your 
+ruby-scgi on a totally different machine with this.
 
 == Running and Configuration
 
@@ -93,7 +95,7 @@ To stop the application:
   
 To restart the application:
 
-  scgi_ctrl -d /path/to/rails/app start # start actually restarts
+  scgi_ctrl -d /path/to/rails/app restart
   
 Note that restarting/stopping is controlled by a pid file (the location is
 configurable).  If the pidfile exists, it is read and the pids in it are
@@ -110,12 +112,14 @@ scgi_ctrl [option=value, ...] (start|stop)
   -d, --directory     Working directory [.]
   -e, --environment   Environment (for Rails) [production]
   -f, --fork          Number of listners on each port [1]
+  -k, --killtime      Number of seconds to wait when killing children [2]
   -l, --logfile       Location of log file [log/scgi.log]
   -m, --maxconns      Maximum number of concurrent users [2**30-1]
   -n, --number        Number of ports to bind to [1]
   -p, --port          Starting port to bind to [9999]
   -P, --pidfile       Location of pid file [log/scgi.pid]
   -r, --processor     Type of processor to use [Rails]
+  -s, --supervise     Whether to use a supervisor [No]
 
 Note that the -d (--directory) option changes the working directory of the
 process, so the -c, -l, and -P options are relative to that.
@@ -160,6 +164,12 @@ Here's a longer explanation of the options:
   it is not stable, switch to multiple port clustering.  It is possible to use
   both as once.
   
+  -k, --killtime      Number of seconds to wait when killing children [2]
+
+  This sets the time that ruby-scgi will wait when stopping or restarting
+  child processes.  The time can actually be twice as long as this, if the
+  child processes are not shutting down cleanly.
+
   -l, --logfile       Location of log file [log/scgi.log]
   
   This is the location of the log file, relative to the working directory.
@@ -201,14 +211,29 @@ Here's a longer explanation of the options:
   path (the RUBYLIB environment variable).  See RailsSCGIProcessor.rb for an
   example.
 
+  -s, --supervise     Whether to use a supervisor [No]
+
+  This starts a supervisor process in addition to the worker processes.  The
+  supervisor process can then add and remove children using the same SCGI
+  listening socket, which means that there will be no downtime when you have
+  to upgrade your application.  Using a supervisor restricts some of the
+  variables that will be updated when you use restart.  You can change the
+  environment, fork, killtime, logfile, maxconns, and processor variables.
+  Note that if you use a supervisor, you should specify those variables in
+  the config file and not on the command line, otherwise it won't be 
+  possible to update them.  This is the only option that does not take an 
+  argument on the command line.  To set it in the config file, see below.
+
 Each of the options can also be specified in the config file as a symbol.  An
 example config file would be:
 
 ---
 :port: 4000
 :fork: 3
+:supervise: true
 
-This sets up a single-port cluster on port 4000 with 3 listening processes.
+This sets up a supervised single-port cluster on port 4000 with 3 listening 
+processes.
 
 == Example configurations
 
@@ -301,9 +326,9 @@ main attack vectors you should be aware of when running this:
 * scgi_ctrl is fully configurable on the command line
 * Clustering and processing are now built into scgi_ctrl
 * DRb, Win32, and throttling are no longer supported
-* Soft reconfiguration is no longer supported (no SIGUSR1)
-* Restarting via SIGHUP is no longer supported (SIGHUP is the same as SIGINT)
-* The only commands available to scgi_ctrl are start and stop
+* Soft reconfiguration has changed (no SIGUSR1)
+* Restarting via SIGHUP is only supported in supervise mode
+* The only commands available to scgi_ctrl are start, stop, and restart
 
 == FAQ
 
@@ -323,9 +348,5 @@ A: I haven't tried.  If you have luck, let me know.
 Q: Is there an easy way to reload?  I don't want to take the whole thing down
 just to deploy new code.
 
-A: scgi_ctrl always uses SIGINT to stop processes, which allows existing
-clients to finish.  Restarting may have problems if a lot of clients are
-connected and the processes can't shutdown before the new listening socket is
-bound.  This hasn't been a problem for me yet, but it is a possible race
-condition.  In case it affects you, you may have to run scgi_ctrl start again
-if you get an error binding to a port.
+A: Use supervise mode, which ensures that no connections will be lost when
+updating your apps.
