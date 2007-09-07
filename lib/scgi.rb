@@ -82,32 +82,21 @@ module SCGI
   # they aren't supported in Apache, and in lighttpd they're unreliable.
   # Also, domain sockets don't work so well on Windows.
   class Processor < Monitor
-    attr_reader :settings
-    
     def initialize(settings = {})
       @total_conns = 0
       @shutdown = false
       @dead = false
       @threads = Queue.new
-      @settings = settings
-      @log = LogFactory.instance.create(settings[:logfile])
-      @host = settings[:bind]
-      @port = settings[:port]
-      @maxconns = settings[:maxconns]
+      @log = LogFactory.instance.create(settings[:logfile] || 'log/scgi.log')
+      @maxconns = settings[:maxconns] || 2**30-1
       super()
       setup_signals
     end
         
-    # Starts the SCGI::Processor having it listen on either the
-    # given socket or listening to a new socket on the @host/@port
-    # configured.  The option to give listen a socket is there so
-    # that others can create one socket, and then fork several processors
-    # to listen to it.
-    #
-    # This function does not return until a shutdown.
-    def listen(socket = nil)
-      @log.info("Started listening on #{@host}:#{@port} at #{@started = Time.now}")
-      @socket = socket || TCPServer.new(@host, @port)
+    # Starts the SCGI::Processor having it listen on the given socket. This
+    # function does not return until a shutdown.
+    def listen(socket)
+      @socket = socket
       
       # we also need a small collector thread that does nothing
       # but pull threads off the thread queue and joins them
@@ -237,8 +226,7 @@ module SCGI
     # when dumping data to the logs
     def status_info
       { 
-      :time => Time.now,  :pid => Process.pid, :settings => @settings,
-      :environment => @settings[:environment], :started => @started,
+      :time => Time.now,  :pid => Process.pid, :started => @started,
       :max_conns => @maxconns, :conns => @threads.length, :systimes => Process.times,
       :shutdown => @shutdown, :dead => @dead, :total_conns => @total_conns
       }.inspect
