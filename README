@@ -31,7 +31,6 @@ Subversion access is available at svn://code.jeremyevans.net/ruby-scgi/.
 * Simple to configure with your web server. 
 * Completely free code licensed under Rails's own license.
 * No external dependencies other than Ruby
-* The core implementation is easily extensible for other Ruby web frameworks.
 
 == Comparison With FastCGI
 
@@ -75,13 +74,13 @@ ruby-scgi on a totally different machine with this.
 
 ruby-scgi is now just a library and doesn't come with a tool to run Rails. The
 previous command line tool (scgi_ctrl) has been greatly enhanced and is now
-available as a standalone gem called style.
+available as a standalone gem called ruby-style.
 
 == Example configurations
 
 Note that ruby-scgi is only tested on Lighttpd.  Also, note that Lighttpd
 1.4.16 has a bug which breaks redirects using server.error-handler-404, so
-either use mod_magnet, use 1.4.17, or apply the patch in ticket 1270 on
+either use mod_magnet, use 1.4.18, or apply the patch in ticket 1270 on
 Lighttpd's Trac.
 
 Lighttpd:
@@ -141,9 +140,22 @@ Apache:
     </Directory>
  </VirtualHost>
 
+== Changes from version 0.8.0
+
+* You can pass a socket to SCGI::Processor.new via settings[:socket]
+* You can have a socket created for you in new if you pass
+  settings[:host] and settings[:port]
+* You can pass an existing logger to new via settings[:log]
+* Passing a socket to listen is now optional, if you passed a socket or
+  had one created in new
+* Improved RDoc for new
+* Most SCGI::Processor methods are now private
+* SCGI::Processor is easier to subclass because it will use preexisting
+  instance variables
+
 == Changes from version 0.7.0
 
-* Command line tool is now in a seperate gem called style
+* Command line tool is now in a seperate gem called ruby-style
 * You now must pass a socket to SCGI::Processor#listen
 * SCGI::Processor's @log and @maxconns now have defaults
 * SCGI::Processor's @host and @port are no longer used 

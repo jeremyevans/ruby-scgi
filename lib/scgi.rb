@@ -81,22 +81,33 @@ module SCGI
   # It might be useful for shared hosting people to have domain sockets, but
   # they aren't supported in Apache, and in lighttpd they're unreliable.
   # Also, domain sockets don't work so well on Windows.
+  #
+  # Available settings:
+  # :socket => Use this socket
+  # :host => Create a socket bound to this IP (if :port is also used)
+  # :port => Create a socket bound to this IP (if :host is also used)
+  # :log => Use this logger instead of creating one
+  # :logfile => Use this logfile instead of log/scgi.log
+  # :maxconns => Allow this many max connections, more than this are redirected
+  #    to /busy.html (default: 2**30 - 1)
   class Processor < Monitor
     def initialize(settings = {})
-      @total_conns = 0
-      @shutdown = false
-      @dead = false
-      @threads = Queue.new
-      @log = LogFactory.instance.create(settings[:logfile] || 'log/scgi.log')
-      @maxconns = settings[:maxconns] || 2**30-1
+      @socket ||= settings[:socket] || (TCPServer.new(settings[:host], settings[:port]) if settings[:host] && settings[:port])
+      @total_conns ||= 0
+      @shutdown ||= false
+      @dead ||= false
+      @threads ||= Queue.new
+      @log ||= settings[:log] || LogFactory.instance.create(settings[:logfile] || 'log/scgi.log')
+      @maxconns ||= settings[:maxconns] || 2**30-1
       super()
       setup_signals
     end
         
-    # Starts the SCGI::Processor having it listen on the given socket. This
+    # Starts the SCGI::Processor having it listen on the given socket, if one
+    # is provided, or the one established in new, if not. This
     # function does not return until a shutdown.
-    def listen(socket)
-      @socket = socket
+    def listen(socket = nil)
+      @socket ||= socket
       
       # we also need a small collector thread that does nothing
       # but pull threads off the thread queue and joins them
@@ -122,6 +133,32 @@ module SCGI
       @log.info("Exited accept loop. Shutdown complete.")
     end
     
+    # When called it will set the @shutdown flag indicating to the 
+    # SCGI::Processor.listen function that all new connections should
+    # be set to /busy.html, and all current connections should be 
+    # "valved" off.  Once all the current connections are gone the
+    # SCGI::Processor.listen function will exit.
+    #
+    # Use the force=true parameter to force an immediate shutdown.
+    # This is done by closing the listening socket, so it's rather
+    # violent.
+    def shutdown(force = false)
+      synchronize do
+        @shutdown = true
+        
+        if @threads.length == 0 
+          @log.info("Immediate shutdown since nobody is connected.")
+          @socket.close
+        elsif force
+          @log.info("Forcing shutdown.  You may see exceptions.")
+          @socket.close
+        else
+          @log.info("Shutdown requested.  Beginning graceful shutdown with #{@threads.length} connected.")
+        end
+      end
+    end   
+    
+    private
     def collect_thread(thread)
       begin
         thread.join
@@ -148,7 +185,6 @@ module SCGI
     # and deals with the graceful shutdown.  The important part 
     # of graceful shutdown is that new requests get redirected to
     # the /busy.html file.
-    #
     def handle_client(socket)
       # ruby's GC seems to do weird things if we don't assign the thread to a local variable
       @threads << Thread.new do
@@ -231,30 +267,5 @@ module SCGI
       :shutdown => @shutdown, :dead => @dead, :total_conns => @total_conns
       }.inspect
     end
-        
-    # When called it will set the @shutdown flag indicating to the 
-    # SCGI::Processor.listen function that all new connections should
-    # be set to /busy.html, and all current connections should be 
-    # "valved" off.  Once all the current connections are gone the
-    # SCGI::Processor.listen function will exit.
-    #
-    # Use the force=true parameter to force an immediate shutdown.
-    # This is done by closing the listening socket, so it's rather
-    # violent.
-    def shutdown(force = false)
-      synchronize do
-        @shutdown = true
-        
-        if @threads.length == 0 
-          @log.info("Immediate shutdown since nobody is connected.")
-          @socket.close
-        elsif force
-          @log.info("Forcing shutdown.  You may see exceptions.")
-          @socket.close
-        else
-          @log.info("Shutdown requested.  Beginning graceful shutdown with #{@threads.length} connected.")
-        end
-      end
-    end        
   end
 end
