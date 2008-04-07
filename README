@@ -17,7 +17,8 @@ Feedback/Bugs/Support Requests should be handled through RubyForge at
 http://rubyforge.org/projects/scgi/.
 
 The RDoc is available at http://code.jeremyevans.net/doc/ruby-scgi/.
-Subversion access is available at svn://code.jeremyevans.net/ruby-scgi/.
+Source control access is available at github
+(https://github.com/jeremyevans/ruby-scgi/tree/master).
 
 == Advantages
 
