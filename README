@@ -16,9 +16,9 @@ ruby-scgi is distributed as a gem, and can be installed with:
 Feedback/Bugs/Support Requests should be handled through RubyForge at 
 http://rubyforge.org/projects/scgi/.
 
-The RDoc is available at http://code.jeremyevans.net/doc/ruby-scgi/.
+The RDoc is available at http://scgi.rubyforge.org
 Source control access is available at github
-(http://github.com/jeremyevans/ruby-scgi/tree/master).
+(http://github.com/jeremyevans/ruby-scgi).
 
 == Advantages
 
@@ -180,4 +180,4 @@ A: Well, aren't you snotty.  You can certainly use Mongrel if you want.  The
 memory/performance differences are small, and it is probably better maintained.
 ruby-scgi is a simpler version of SCGI Rails Runner, and may be useful for 
 certain legacy setups.  Also, it works well and it's been working for me for 
-the last few years, so I haven't felt the need to change to Mongrel.
+the last few years.
