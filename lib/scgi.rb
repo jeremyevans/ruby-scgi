@@ -254,8 +254,13 @@ module SCGI
     def setup_signals
       trap("TERM") { @log.info("SIGTERM, forced shutdown."); shutdown(force=true) }
       trap("INT") { @log.info("SIGINT, graceful shutdown started."); shutdown }
-      trap("HUP") { @log.info("SIGHUP, graceful shutdown started."); shutdown }
-      trap("USR2") { @log.info(status_info) }
+      begin
+        trap("HUP") { @log.info("SIGHUP, graceful shutdown started."); shutdown }
+        trap("USR2") { @log.info(status_info) }
+      rescue ArgumentError
+        # Probably on Windows and these signals aren't supported
+        nil
+      end
     end
         
     # Returns a Hash with status information.  This is used

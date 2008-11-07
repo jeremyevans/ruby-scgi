@@ -1,6 +1,6 @@
 spec = Gem::Specification.new do |s| 
   s.name = "scgi"
-  s.version = "0.9.0"
+  s.version = "0.9.1"
   s.author = "Jeremy Evans"
   s.email = "code@jeremyevans.net"
   s.platform = Gem::Platform::RUBY
